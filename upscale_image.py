@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Local Image Upscaler using RealESRGAN (NCNN version)
-A completely offline image upscaling tool that runs locally on your machine.
-Uses pre-compiled RealESRGAN-ncnn-vulkan binaries.
+Local Image Upscaler using RealESRGAN
+Supports both NCNN (Vulkan) and PyTorch backends with automatic fallback.
 """
 
 import os
@@ -34,12 +33,13 @@ BINARY_URLS = {
 }
 
 
-class RealESRGANUpscaler:
+class NCNNBackend:
     def __init__(self, model_name="realesrgan-x4plus", scale_factor=4, gpuid=0):
         self.model_name = model_name
         self.scale_factor = scale_factor
         self.gpuid = gpuid
         self.binary_path = None
+        self.models_dir = None
         self.model_dir = Path("models")
         self.model_dir.mkdir(exist_ok=True)
 
@@ -101,18 +101,213 @@ class RealESRGANUpscaler:
         print(f"Binary extracted to: {binary_path}")
         print(f"Models extracted to: {models_dir}")
 
-    def download_models(self):
-        pass
-
-    def load_model(self):
+    def load(self):
         self.download_binary()
-        self.download_models()
-        print(f"Model {self.model_name} ready")
+        print(f"NCNN backend loaded")
+
+    def upscale(self, input_path, output_path):
+        cmd = [
+            str(self.binary_path),
+            "-i",
+            str(input_path),
+            "-o",
+            str(output_path),
+            "-n",
+            self.model_name,
+            "-s",
+            str(self.scale_factor),
+            "-g",
+            str(self.gpuid),
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr)
+
+        return output_path
+
+
+class PyTorchBackend:
+    def __init__(self, model_name="RealESRGAN_x4plus", scale_factor=4, device=None):
+        self.model_name = model_name
+        self.scale_factor = scale_factor
+        self.device = device or ("cuda" if sys.platform != "darwin" else "cpu")
+        self.model = None
+        self.upsampler = None
+        self.model_dir = Path("models")
+        self.model_dir.mkdir(exist_ok=True)
+
+    def get_pytorch_model_name(self):
+        mapping = {
+            "realesrgan-x4plus": "RealESRGAN_x4plus",
+            "realesrgan-x4plus-anime": "RealESRGAN_x4plus_anime",
+            "realesr-animevideov3-x2": "RealESRGAN_x2plus",
+            "realesr-animevideov3-x3": "RealESRGAN_x4plus",
+            "realesr-animevideov3-x4": "RealESRGAN_x4plus",
+        }
+        return mapping.get(self.model_name, "RealESRGAN_x4plus")
+
+    def download_model(self):
+        model_urls = {
+            "RealESRGAN_x4plus": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+            "RealESRGAN_x4plus_anime": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus_anime.pth",
+            "RealESRGAN_x2plus": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/RealESRGAN_x2plus.pth",
+        }
+
+        pytorch_model_name = self.get_pytorch_model_name()
+        if pytorch_model_name not in model_urls:
+            pytorch_model_name = "RealESRGAN_x4plus"
+
+        model_path = self.model_dir / f"{pytorch_model_name}.pth"
+
+        if not model_path.exists():
+            print(f"Downloading {pytorch_model_name} model...")
+            url = model_urls[pytorch_model_name]
+            urllib.request.urlretrieve(url, model_path)
+
+        return model_path, pytorch_model_name
+
+    def load(self):
+        try:
+            import torch
+            from basicsr.archs.rrdbnet_arch import RRDBNet
+            from realesrgan import RealESRGANer
+        except ImportError as e:
+            raise ImportError(f"PyTorch dependencies not installed: {e}")
+
+        model_path, pytorch_model_name = self.download_model()
+
+        import torch
+
+        if pytorch_model_name == "RealESRGAN_x4plus":
+            model = RRDBNet(
+                num_in_ch=3,
+                num_out_ch=3,
+                num_feat=64,
+                num_block=23,
+                num_grow_ch=32,
+                scale=4,
+            )
+            scale = 4
+        elif pytorch_model_name == "RealESRGAN_x4plus_anime":
+            model = RRDBNet(
+                num_in_ch=3,
+                num_out_ch=3,
+                num_feat=64,
+                num_block=23,
+                num_grow_ch=32,
+                scale=4,
+            )
+            scale = 4
+        elif pytorch_model_name == "RealESRGAN_x2plus":
+            model = RRDBNet(
+                num_in_ch=3,
+                num_out_ch=3,
+                num_feat=64,
+                num_block=23,
+                num_grow_ch=32,
+                scale=2,
+            )
+            scale = 2
+        else:
+            model = RRDBNet(
+                num_in_ch=3,
+                num_out_ch=3,
+                num_feat=64,
+                num_block=23,
+                num_grow_ch=32,
+                scale=4,
+            )
+            scale = 4
+
+        half = self.device == "cuda"
+
+        self.upsampler = RealESRGANer(
+            scale=scale,
+            model_path=str(model_path),
+            model=model,
+            tile=0,
+            tile_pad=10,
+            pre_pad=0,
+            half=half,
+            device=self.device,
+        )
+        print(f"PyTorch backend loaded (device: {self.device})")
+
+    def upscale(self, input_path, output_path):
+        import cv2
+        from PIL import Image
+
+        img = cv2.imread(str(input_path), cv2.IMREAD_UNCHANGED)
+        if img is None:
+            raise ValueError(f"Failed to read image: {input_path}")
+
+        if img.ndim == 2:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        elif img.shape[2] == 4:
+            img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
+
+        output, _ = self.upsampler.enhance(img, outscale=self.scale_factor)
+
+        if output.shape[2] == 3:
+            output = cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
+
+        output_img = Image.fromarray(output)
+        output_img.save(output_path)
+
+        return output_path
+
+
+class RealESRGANUpscaler:
+    def __init__(
+        self,
+        model_name="realesrgan-x4plus",
+        scale_factor=4,
+        gpuid=0,
+        prefer_backend="auto",
+    ):
+        self.model_name = model_name
+        self.scale_factor = scale_factor
+        self.gpuid = gpuid
+        self.prefer_backend = prefer_backend
+
+        self.ncnn_backend = NCNNBackend(model_name, scale_factor, gpuid)
+        self.pytorch_backend = PyTorchBackend(model_name, scale_factor)
+
+        self.backend = None
+        self.backend_name = None
+
+    def load(self, backend=None):
+        if backend == "ncnn":
+            self.ncnn_backend.load()
+            self.backend = self.ncnn_backend
+            self.backend_name = "ncnn"
+        elif backend == "pytorch":
+            self.pytorch_backend.load()
+            self.backend = self.pytorch_backend
+            self.backend_name = "pytorch"
+        else:
+            try:
+                print("Trying NCNN backend (Vulkan)...")
+                self.ncnn_backend.load()
+                self.backend = self.ncnn_backend
+                self.backend_name = "ncnn"
+                print("Using NCNN backend")
+            except Exception as e:
+                print(f"NCNN failed: {e}")
+                print("Falling back to PyTorch backend...")
+                try:
+                    self.pytorch_backend.load()
+                    self.backend = self.pytorch_backend
+                    self.backend_name = "pytorch"
+                    print("Using PyTorch backend")
+                except Exception as e2:
+                    raise RuntimeError(
+                        f"Both backends failed. NCNN: {e}, PyTorch: {e2}"
+                    )
 
     def upscale_image(self, input_path, output_path=None):
-        if self.binary_path is None:
-            self.load_model()
-
         input_path = Path(input_path)
         if not input_path.exists():
             raise FileNotFoundError(f"Input image not found: {input_path}")
@@ -125,33 +320,25 @@ class RealESRGANUpscaler:
         else:
             output_path = Path(output_path)
 
-        print(f"Upscaling {input_path.name}...")
+        if self.backend is None:
+            self.load()
+
+        print(f"Upscaling {input_path.name} using {self.backend_name} backend...")
 
         try:
-            cmd = [
-                str(self.binary_path),
-                "-i",
-                str(input_path),
-                "-o",
-                str(output_path),
-                "-n",
-                self.model_name,
-                "-s",
-                str(self.scale_factor),
-                "-g",
-                str(self.gpuid),
-            ]
-
-            result = subprocess.run(cmd, capture_output=True, text=True)
-
-            if result.returncode != 0:
-                raise RuntimeError(f"Upscaling failed: {result.stderr}")
-
+            result = self.backend.upscale(input_path, output_path)
             print(f"Upscaled image saved to: {output_path}")
-            return str(output_path)
-
+            return str(result)
         except Exception as e:
-            print(f"Error upscaling image: {e}")
+            if self.backend_name == "ncnn":
+                print(f"NCNN failed: {e}")
+                print("Falling back to PyTorch backend...")
+                self.backend = None
+                self.pytorch_backend.gpuid = -1
+                self.load("pytorch")
+                result = self.backend.upscale(input_path, output_path)
+                print(f"Upscaled image saved to: {output_path}")
+                return str(result)
             raise
 
     def upscale_batch(
@@ -212,7 +399,7 @@ MODEL_SCALES = {
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Local Image Upscaler using RealESRGAN (NCNN)"
+        description="Local Image Upscaler using RealESRGAN (NCNN + PyTorch)"
     )
     parser.add_argument("input", help="Input image file or directory")
     parser.add_argument("-o", "--output", help="Output file or directory (optional)")
@@ -232,7 +419,18 @@ def main():
         help="Upscaling factor",
     )
     parser.add_argument(
-        "-g", "--gpu", type=int, default=0, help="GPU device ID (default: 0)"
+        "-g",
+        "--gpu",
+        type=int,
+        default=0,
+        help="GPU device ID (default: 0, use -1 for CPU-only)",
+    )
+    parser.add_argument(
+        "-b",
+        "--backend",
+        default="auto",
+        choices=["auto", "ncnn", "pytorch"],
+        help="Backend to use: auto (fallback), ncnn, or pytorch",
     )
     parser.add_argument(
         "--batch", action="store_true", help="Process all images in directory"
@@ -246,8 +444,14 @@ def main():
         print(f"Using scale factor from model: {model_scale}")
         args.scale = model_scale
 
+    if args.gpu == -1:
+        args.backend = "pytorch"
+
     upscaler = RealESRGANUpscaler(
-        model_name=args.model, scale_factor=args.scale, gpuid=args.gpu
+        model_name=args.model,
+        scale_factor=args.scale,
+        gpuid=args.gpu,
+        prefer_backend=args.backend,
     )
 
     try:
