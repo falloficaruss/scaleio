@@ -20,15 +20,15 @@ import tempfile
 
 BINARY_URLS = {
     "windows": {
-        "url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v20220728/realesrgan-ncnn-vulkan-20220728-windows.zip",
+        "url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v0.2.0/realesrgan-ncnn-vulkan-v0.2.0-windows.zip",
         "binary": "realesrgan-ncnn-vulkan.exe",
     },
     "linux": {
-        "url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v20220728/realesrgan-ncnn-vulkan-20220728-linux.zip",
+        "url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v0.2.0/realesrgan-ncnn-vulkan-v0.2.0-ubuntu.zip",
         "binary": "realesrgan-ncnn-vulkan",
     },
     "darwin": {
-        "url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v20220728/realesrgan-ncnn-vulkan-20220728-mac.zip",
+        "url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v0.2.0/realesrgan-ncnn-vulkan-v0.2.0-macos.zip",
         "binary": "realesrgan-ncnn-vulkan",
     },
 }
@@ -93,7 +93,7 @@ class RealESRGANUpscaler:
         models_dir = self.model_dir / "ncnn-models"
         models_dir.mkdir(exist_ok=True)
 
-        base_url = "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/models"
+        base_url = "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v0.2.0/models"
 
         models = [
             ("realesrgan-x4plus", "realesrgan-x4plus", "4x"),
