@@ -60,12 +60,10 @@ class RealESRGANUpscaler:
         binary_dir = Path("bin")
         binary_dir.mkdir(exist_ok=True)
 
-        binary_path = binary_dir / binary_info["binary"]
+        models_dir = self.model_dir / "ncnn-models"
+        models_dir.mkdir(exist_ok=True)
 
-        if binary_path.exists():
-            print(f"Binary already exists at {binary_path}")
-            self.binary_path = binary_path
-            return
+        binary_path = binary_dir / binary_info["binary"]
 
         zip_path = (
             Path(tempfile.gettempdir()) / f"realesrgan-ncnn-vulkan-{platform_info}.zip"
@@ -75,55 +73,36 @@ class RealESRGANUpscaler:
             print(f"Downloading RealESRGAN-ncnn-vulkan binary...")
             urllib.request.urlretrieve(binary_info["url"], zip_path)
 
-        print("Extracting binary...")
+        print("Extracting binary and models...")
         with zipfile.ZipFile(zip_path, "r") as zip_ref:
             for member in zip_ref.namelist():
-                if binary_info["binary"] in member:
+                if binary_info["binary"] in member and not member.endswith("/"):
                     source = zip_ref.open(member)
                     target = open(binary_path, "wb")
                     with source, target:
                         shutil.copyfileobj(source, target)
                     break
 
-        binary_path.chmod(binary_path.stat().st_mode | 0o111)
+            for member in zip_ref.namelist():
+                if member.endswith(".param") or member.endswith(".bin"):
+                    filename = Path(member).name
+                    target_path = models_dir / filename
+                    if not target_path.exists():
+                        with zip_ref.open(member) as source:
+                            with open(target_path, "wb") as target:
+                                shutil.copyfileobj(source, target)
+                    model_in_bin_dir = binary_dir / filename
+                    if not model_in_bin_dir.exists():
+                        shutil.copy2(target_path, model_in_bin_dir)
+
+        binary_path.chmod(0o755)
         self.binary_path = binary_path
+        self.models_dir = models_dir
         print(f"Binary extracted to: {binary_path}")
+        print(f"Models extracted to: {models_dir}")
 
     def download_models(self):
-        models_dir = self.model_dir / "ncnn-models"
-        models_dir.mkdir(exist_ok=True)
-
-        base_url = "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v0.2.0/models"
-
-        models = [
-            ("realesrgan-x4plus", "realesrgan-x4plus", "4x"),
-            ("realesrgan-x4plus-anime", "realesrgan-x4plus-anime", "4x"),
-            ("realesr-animevideov3-x2", "realesr-animevideov3-x2", "2x"),
-            ("realesr-animevideov3-x3", "realesr-animevideov3-x3", "3x"),
-            ("realesr-animevideov3-x4", "realesr-animevideov3-x4", "4x"),
-        ]
-
-        for model_id, model_file, scale in models:
-            param_path = models_dir / f"{model_file}.param"
-            bin_path = models_dir / f"{model_file}.bin"
-
-            if param_path.exists() and bin_path.exists():
-                continue
-
-            print(f"Downloading model: {model_id}...")
-
-            param_url = f"{base_url}/{model_file}.param"
-            bin_url = f"{base_url}/{model_file}.bin"
-
-            try:
-                urllib.request.urlretrieve(param_url, param_path)
-                urllib.request.urlretrieve(bin_url, bin_path)
-            except Exception as e:
-                if param_path.exists():
-                    param_path.unlink()
-                if bin_path.exists():
-                    bin_path.unlink()
-                print(f"Warning: Could not download {model_id}: {e}")
+        pass
 
     def load_model(self):
         self.download_binary()
