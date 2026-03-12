@@ -8,13 +8,14 @@ A completely offline image upscaling tool using RealESRGAN that runs locally on 
 - 🚀 **High Quality**: Uses RealESRGAN for superior upscaling results
 - 🔧 **Easy Setup**: Simple Python installation
 - 📁 **Batch Processing**: Upscale multiple images at once
-- 💾 **Multiple Models**: Support for 2x, 4x, and 8x upscaling
+- 💾 **Multiple Models**: Support for 2x, 3x, and 4x upscaling
 - 🎯 **Free & Open Source**: No costs, no subscriptions
 
 ## Requirements
 
-- Python 3.7 or higher
+- Python 3.8 or higher
 - A computer with GPU (recommended) or CPU
+- For Linux: Vulkan runtime libraries
 
 ## Installation
 
@@ -24,13 +25,21 @@ A completely offline image upscaling tool using RealESRGAN that runs locally on 
    cd scaleio
    ```
 
-2. **Install dependencies**
+2. **Install system dependencies** (Linux only)
    ```bash
-   pip install -r requirements.txt
-   pip install realesrgan
+   # Debian/Ubuntu
+   sudo apt install -y libvulkan-dev vulkan-tools
+   
+   # Fedora/RHEL
+   sudo dnf install vulkan-loader
    ```
 
-3. **Verify installation**
+3. **Install Python dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Verify installation**
    ```bash
    python upscale_image.py --help
    ```
@@ -47,10 +56,10 @@ python upscale_image.py input_image.jpg
 python upscale_image.py input_image.jpg -o output_image.jpg
 
 # Use different model (2x upscaling)
-python upscale_image.py input_image.jpg -m RealESRGAN_x2plus
+python upscale_image.py input_image.jpg -m realesr-animevideov3-x2
 
-# Use 8x upscaling
-python upscale_image.py input_image.jpg -m RealESRGAN_x8plus
+# Use anime-optimized model
+python upscale_image.py input_image.jpg -m realesrgan-x4plus-anime
 ```
 
 ### Batch Processing
@@ -67,17 +76,20 @@ python upscale_image.py /path/to/images --batch -o /path/to/output
 
 - `input`: Input image file or directory
 - `-o, --output`: Output file or directory (optional)
-- `-m, --model`: Model to use (RealESRGAN_x4plus, RealESRGAN_x2plus, RealESRGAN_x8plus)
-- `-s, --scale`: Upscaling factor (2, 4, 8)
+- `-m, --model`: Model to use (see Models section)
+- `-s, --scale`: Upscaling factor (2, 3, 4)
+- `-g, --gpu`: GPU device ID (default: 0, use -1 for CPU)
 - `--batch`: Process all images in directory
 
 ## Models
 
 | Model | Scale Factor | Best For |
 |-------|-------------|----------|
-| RealESRGAN_x2plus | 2x | Moderate enhancement, faster processing |
-| RealESRGAN_x4plus | 4x | General purpose upscaling (default) |
-| RealESRGAN_x8plus | 8x | Maximum upscaling, slower processing |
+| realesr-animevideov3-x2 | 2x | Anime video, faster processing |
+| realesr-animevideov3-x3 | 3x | Anime video, 3x upscaling |
+| realesr-animevideov3-x4 | 4x | Anime video |
+| realesrgan-x4plus | 4x | General purpose upscaling (default) |
+| realesrgan-x4plus-anime | 4x | Anime-style images |
 
 ## Supported Formats
 
@@ -85,50 +97,52 @@ python upscale_image.py /path/to/images --batch -o /path/to/output
 - PNG (.png)
 - BMP (.bmp)
 - TIFF (.tiff)
+- WebP (.webp)
 
 ## How It Works
 
-1. **Model Download**: On first run, the tool automatically downloads the selected RealESRGAN model
-2. **Local Processing**: Images are processed entirely on your machine using PyTorch
+1. **First Run**: The tool automatically downloads the required binary and models
+2. **Local Processing**: Images are processed entirely on your machine using NCNN + Vulkan
 3. **Smart Upscaling**: RealESRGAN uses deep learning to intelligently enhance image details
 4. **Privacy**: No data is sent to any external service
 
 ## Performance Tips
 
-- **GPU Acceleration**: If you have an NVIDIA GPU, ensure CUDA is installed for faster processing
-- **Memory Usage**: Large images may require significant RAM
+- **GPU Acceleration**: Uses Vulkan for GPU acceleration. Works with Intel, AMD, and NVIDIA GPUs
+- **CPU Fallback**: Use `-g -1` for CPU-only processing
+- **Memory Usage**: Efficient memory usage with tile-based processing
 - **Batch Processing**: Process multiple images efficiently with the `--batch` option
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **"Missing dependencies" error**
-   ```bash
-   pip install realesrgan
-   ```
+1. **"Vulkan not found" error**
+   - Linux: `sudo apt install -y libvulkan-dev vulkan-tools`
+   - Windows: Install Vulkan runtime from https://vulkan.lunarg.com/
+   - macOS: Limited GPU support, try CPU mode with `-g -1`
 
-2. **CUDA out of memory**
-   - Use CPU processing: The tool automatically falls back to CPU if GPU memory is insufficient
-   - Process smaller images
+2. **Binary download fails**
+   - Check your internet connection
+   - Try downloading manually from GitHub releases
 
-3. **Model download fails**
-   - Check your internet connection for the first download
-   - Models are cached locally after first use
+3. **No GPU detected**
+   - Verify Vulkan is working: `vulkaninfo`
+   - Try CPU mode: `-g -1`
 
 ### Getting Help
 
 If you encounter issues:
 1. Check that all dependencies are installed
 2. Verify the input file exists and is a supported format
-3. Ensure you have sufficient disk space for models and output
+3. Run with `--help` to see all available options
 
 ## Technical Details
 
-- **Framework**: PyTorch
+- **Framework**: NCNN (Tencent's neural network inference framework)
+- **Backend**: Vulkan for GPU acceleration
 - **Model**: RealESRGAN (Real-World Super-Resolution via Synthetic Data)
-- **Architecture**: RRDBNet (Residual-in-Residual Dense Block Network)
-- **Processing**: Tile-based processing for large images
+- **Processing**: Efficient tile-based processing for large images
 
 ## License
 

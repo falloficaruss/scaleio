@@ -1,172 +1,137 @@
 #!/usr/bin/env python3
 """
-Local Image Upscaler using RealESRGAN
+Local Image Upscaler using RealESRGAN (NCNN version)
 A completely offline image upscaling tool that runs locally on your machine.
+Uses pre-compiled RealESRGAN-ncnn-vulkan binaries.
 """
 
 import os
 import sys
-import re
+import platform
 import argparse
-import torch
-from PIL import Image
-import numpy as np
-import cv2
+import subprocess
+import zipfile
+import shutil
 from pathlib import Path
-import requests
 from tqdm import tqdm
+import urllib.request
 import tempfile
 
 
-class RealESRGANUpscaler:
-    def __init__(self, model_name="RealESRGAN_x4plus", scale_factor=4):
-        """
-        Initialize the RealESRGAN upscaler
+BINARY_URLS = {
+    "windows": {
+        "url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v20220728/realesrgan-ncnn-vulkan-20220728-windows.zip",
+        "binary": "realesrgan-ncnn-vulkan.exe",
+    },
+    "linux": {
+        "url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v20220728/realesrgan-ncnn-vulkan-20220728-linux.zip",
+        "binary": "realesrgan-ncnn-vulkan",
+    },
+    "darwin": {
+        "url": "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/v20220728/realesrgan-ncnn-vulkan-20220728-mac.zip",
+        "binary": "realesrgan-ncnn-vulkan",
+    },
+}
 
-        Args:
-            model_name (str): Name of the model to use
-            scale_factor (int): Upscaling factor (2, 4, or 8)
-        """
+
+class RealESRGANUpscaler:
+    def __init__(self, model_name="realesrgan-x4plus", scale_factor=4, gpuid=0):
         self.model_name = model_name
         self.scale_factor = scale_factor
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = None
-        self.upsampler = None
+        self.gpuid = gpuid
+        self.binary_path = None
         self.model_dir = Path("models")
         self.model_dir.mkdir(exist_ok=True)
 
-    def download_model(self):
-        """Download the RealESRGAN model if not already present"""
-        model_urls = {
-            "RealESRGAN_x4plus": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
-            "RealESRGAN_x2plus": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.1/RealESRGAN_x2plus.pth",
-            "RealESRGAN_x8plus": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x8plus.pth",
-        }
+    def get_platform(self):
+        system = platform.system().lower()
+        if system == "windows":
+            return "windows"
+        elif system == "linux":
+            return "linux"
+        elif system == "darwin":
+            return "darwin"
+        raise RuntimeError(f"Unsupported platform: {system}")
 
-        if self.model_name not in model_urls:
-            raise ValueError(f"Model {self.model_name} not supported")
+    def download_binary(self):
+        platform_info = self.get_platform()
+        binary_info = BINARY_URLS[platform_info]
 
-        model_path = self.model_dir / f"{self.model_name}.pth"
+        binary_dir = Path("bin")
+        binary_dir.mkdir(exist_ok=True)
 
-        if model_path.exists():
-            print(f"Model already exists at {model_path}")
-            return model_path
+        binary_path = binary_dir / binary_info["binary"]
 
-        print(f"Downloading {self.model_name} model...")
-        url = model_urls[self.model_name]
+        if binary_path.exists():
+            print(f"Binary already exists at {binary_path}")
+            self.binary_path = binary_path
+            return
 
-        try:
-            response = requests.get(url, stream=True)
-            response.raise_for_status()
+        zip_path = (
+            Path(tempfile.gettempdir()) / f"realesrgan-ncnn-vulkan-{platform_info}.zip"
+        )
 
-            total_size = int(response.headers.get("content-length", 0))
-            with open(model_path, "wb") as f:
-                with tqdm(
-                    total=total_size, unit="B", unit_scale=True, desc="Downloading"
-                ) as pbar:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                            pbar.update(len(chunk))
+        if not zip_path.exists():
+            print(f"Downloading RealESRGAN-ncnn-vulkan binary...")
+            urllib.request.urlretrieve(binary_info["url"], zip_path)
 
-            print(f"Model downloaded to {model_path}")
-            return model_path
+        print("Extracting binary...")
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            for member in zip_ref.namelist():
+                if binary_info["binary"] in member:
+                    source = zip_ref.open(member)
+                    target = open(binary_path, "wb")
+                    with source, target:
+                        shutil.copyfileobj(source, target)
+                    break
 
-        except Exception as e:
-            print(f"Error downloading model: {e}")
-            raise
+        binary_path.chmod(binary_path.stat().st_mode | 0o111)
+        self.binary_path = binary_path
+        print(f"Binary extracted to: {binary_path}")
+
+    def download_models(self):
+        models_dir = self.model_dir / "ncnn-models"
+        models_dir.mkdir(exist_ok=True)
+
+        base_url = "https://github.com/xinntao/Real-ESRGAN-ncnn-vulkan/releases/download/models"
+
+        models = [
+            ("realesrgan-x4plus", "realesrgan-x4plus", "4x"),
+            ("realesrgan-x4plus-anime", "realesrgan-x4plus-anime", "4x"),
+            ("realesr-animevideov3-x2", "realesr-animevideov3-x2", "2x"),
+            ("realesr-animevideov3-x3", "realesr-animevideov3-x3", "3x"),
+            ("realesr-animevideov3-x4", "realesr-animevideov3-x4", "4x"),
+        ]
+
+        for model_id, model_file, scale in models:
+            param_path = models_dir / f"{model_file}.param"
+            bin_path = models_dir / f"{model_file}.bin"
+
+            if param_path.exists() and bin_path.exists():
+                continue
+
+            print(f"Downloading model: {model_id}...")
+
+            param_url = f"{base_url}/{model_file}.param"
+            bin_url = f"{base_url}/{model_file}.bin"
+
+            try:
+                urllib.request.urlretrieve(param_url, param_path)
+                urllib.request.urlretrieve(bin_url, bin_path)
+            except Exception as e:
+                if param_path.exists():
+                    param_path.unlink()
+                if bin_path.exists():
+                    bin_path.unlink()
+                print(f"Warning: Could not download {model_id}: {e}")
 
     def load_model(self):
-        """Load the RealESRGAN model"""
-        try:
-            # Import realesrgan here to avoid import errors if not installed
-            from basicsr.archs.rrdbnet_arch import RRDBNet
-            from basicsr.utils.download_util import load_file_from_url
-            from realesrgan import RealESRGANer
-
-            model_path = self.download_model()
-
-            # Initialize model based on the model name
-            if self.model_name == "RealESRGAN_x4plus":
-                model = RRDBNet(
-                    num_in_ch=3,
-                    num_out_ch=3,
-                    num_feat=64,
-                    num_block=23,
-                    num_grow_ch=32,
-                    scale=4,
-                )
-                upsampler = RealESRGANer(
-                    scale=4,
-                    model_path=str(model_path),
-                    model=model,
-                    tile=0,
-                    tile_pad=10,
-                    pre_pad=0,
-                    half=False if self.device.type == "cpu" else True,
-                    device=self.device,
-                )
-            elif self.model_name == "RealESRGAN_x2plus":
-                model = RRDBNet(
-                    num_in_ch=3,
-                    num_out_ch=3,
-                    num_feat=64,
-                    num_block=23,
-                    num_grow_ch=32,
-                    scale=2,
-                )
-                upsampler = RealESRGANer(
-                    scale=2,
-                    model_path=str(model_path),
-                    model=model,
-                    tile=0,
-                    tile_pad=10,
-                    pre_pad=0,
-                    half=False if self.device.type == "cpu" else True,
-                    device=self.device,
-                )
-            elif self.model_name == "RealESRGAN_x8plus":
-                model = RRDBNet(
-                    num_in_ch=3,
-                    num_out_ch=3,
-                    num_feat=64,
-                    num_block=23,
-                    num_grow_ch=32,
-                    scale=8,
-                )
-                upsampler = RealESRGANer(
-                    scale=8,
-                    model_path=str(model_path),
-                    model=model,
-                    tile=0,
-                    tile_pad=10,
-                    pre_pad=0,
-                    half=False if self.device.type == "cpu" else True,
-                    device=self.device,
-                )
-            else:
-                raise ValueError(f"Unknown model: {self.model_name}")
-
-            self.upsampler = upsampler
-            print(f"Model loaded successfully on {self.device}")
-
-        except ImportError as e:
-            print(f"Missing dependencies: {e}")
-            print("Please install realesrgan: pip install realesrgan")
-            sys.exit(1)
+        self.download_binary()
+        self.download_models()
+        print(f"Model {self.model_name} ready")
 
     def upscale_image(self, input_path, output_path=None):
-        """
-        Upscale a single image
-
-        Args:
-            input_path (str): Path to input image
-            output_path (str): Path to save upscaled image (optional)
-
-        Returns:
-            str: Path to the upscaled image
-        """
-        if self.upsampler is None:
+        if self.binary_path is None:
             self.load_model()
 
         input_path = Path(input_path)
@@ -181,27 +146,29 @@ class RealESRGANUpscaler:
         else:
             output_path = Path(output_path)
 
-        # Read image
-        img = cv2.imread(str(input_path), cv2.IMREAD_UNCHANGED)
-        if img.ndim == 2:
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-        elif img.shape[2] == 4:
-            img = cv2.cvtColor(img, cv2.COLOR_BGRA2RGB)
-
         print(f"Upscaling {input_path.name}...")
 
         try:
-            # Upscale the image
-            output, _ = self.upsampler.enhance(img, outscale=self.scale_factor)
+            cmd = [
+                str(self.binary_path),
+                "-i",
+                str(input_path),
+                "-o",
+                str(output_path),
+                "-n",
+                self.model_name,
+                "-s",
+                str(self.scale_factor),
+                "-g",
+                str(self.gpuid),
+            ]
 
-            # Convert back to PIL and save
-            if output.shape[2] == 3:
-                output = cv2.cvtColor(output, cv2.COLOR_BGR2RGB)
+            result = subprocess.run(cmd, capture_output=True, text=True)
 
-            output_img = Image.fromarray(output)
-            output_img.save(output_path)
+            if result.returncode != 0:
+                raise RuntimeError(f"Upscaling failed: {result.stderr}")
+
             print(f"Upscaled image saved to: {output_path}")
-
             return str(output_path)
 
         except Exception as e:
@@ -214,14 +181,6 @@ class RealESRGANUpscaler:
         output_dir=None,
         file_extensions=(".jpg", ".jpeg", ".png", ".bmp", ".tiff"),
     ):
-        """
-        Upscale all images in a directory
-
-        Args:
-            input_dir (str): Input directory containing images
-            output_dir (str): Output directory for upscaled images (optional)
-            file_extensions (tuple): Supported file extensions
-        """
         input_dir = Path(input_dir)
         if not input_dir.exists():
             raise FileNotFoundError(f"Input directory not found: {input_dir}")
@@ -233,7 +192,6 @@ class RealESRGANUpscaler:
 
         output_dir.mkdir(exist_ok=True)
 
-        # Find all image files
         image_files = []
         for ext in file_extensions:
             image_files.extend(input_dir.glob(f"*{ext}"))
@@ -256,21 +214,46 @@ class RealESRGANUpscaler:
                 print(f"Error processing {img_file.name}: {e}")
 
 
+MODEL_CHOICES = [
+    "realesrgan-x4plus",
+    "realesrgan-x4plus-anime",
+    "realesr-animevideov3-x2",
+    "realesr-animevideov3-x3",
+    "realesr-animevideov3-x4",
+]
+
+MODEL_SCALES = {
+    "realesrgan-x4plus": 4,
+    "realesrgan-x4plus-anime": 4,
+    "realesr-animevideov3-x2": 2,
+    "realesr-animevideov3-x3": 3,
+    "realesr-animevideov3-x4": 4,
+}
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Local Image Upscaler using RealESRGAN"
+        description="Local Image Upscaler using RealESRGAN (NCNN)"
     )
     parser.add_argument("input", help="Input image file or directory")
     parser.add_argument("-o", "--output", help="Output file or directory (optional)")
     parser.add_argument(
         "-m",
         "--model",
-        default="RealESRGAN_x4plus",
-        choices=["RealESRGAN_x4plus", "RealESRGAN_x2plus", "RealESRGAN_x8plus"],
+        default="realesrgan-x4plus",
+        choices=MODEL_CHOICES,
         help="Model to use for upscaling",
     )
     parser.add_argument(
-        "-s", "--scale", type=int, default=4, choices=[2, 4, 8], help="Upscaling factor"
+        "-s",
+        "--scale",
+        type=int,
+        default=4,
+        choices=[2, 3, 4, 8],
+        help="Upscaling factor",
+    )
+    parser.add_argument(
+        "-g", "--gpu", type=int, default=0, help="GPU device ID (default: 0)"
     )
     parser.add_argument(
         "--batch", action="store_true", help="Process all images in directory"
@@ -278,22 +261,20 @@ def main():
 
     args = parser.parse_args()
 
-    # Validate scale factor matches model
-    model_scale = int(re.search(r"x(\d+)", args.model).group(1))
+    model_scale = MODEL_SCALES.get(args.model, 4)
     if args.scale != model_scale:
         print(f"Warning: Scale factor {args.scale} doesn't match model {args.model}")
         print(f"Using scale factor from model: {model_scale}")
         args.scale = model_scale
 
-    # Initialize upscaler
-    upscaler = RealESRGANUpscaler(model_name=args.model, scale_factor=args.scale)
+    upscaler = RealESRGANUpscaler(
+        model_name=args.model, scale_factor=args.scale, gpuid=args.gpu
+    )
 
     try:
         if args.batch or os.path.isdir(args.input):
-            # Batch processing
             upscaler.upscale_batch(args.input, args.output)
         else:
-            # Single image processing
             upscaler.upscale_image(args.input, args.output)
 
         print("Upscaling completed successfully!")
