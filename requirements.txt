@@ -1,0 +1,11 @@
+torch
+torchvision
+timm
+einops
+kornia
+scikit-image
+pillow
+numpy
+pyyaml
+tensorboard
+tqdm
