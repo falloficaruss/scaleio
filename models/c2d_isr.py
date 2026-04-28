@@ -50,7 +50,7 @@ class C2DISR(nn.Module):
         stage: str = 'continuous',
         scale_factor: Optional[int] = None
     ):
-        super()__init__()
+        super().__init__()
         self.in_channels = in_channels
         self.feature_dim = feature_dim
         self.num_hiet_blocks = num_hiet_blocks
@@ -98,15 +98,15 @@ class C2DISR(nn.Module):
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
-                elif isinstance(m, nn.LayerNorm):
-                    nn.init.constant(m.bias, 0)
-                    nn.init.constant(m.weight, 1.0)
+            elif isinstance(m, nn.LayerNorm):
+                nn.init.constant_(m.bias, 0)
+                nn.init.constant_(m.weight, 1.0)
 
     def forward(self, x: torch.Tensor, scale: Optional[float] = None) -> torch.Tensor:
         shallow_features = self.shallow_extractor(x)
         deep_features = self.deep_extractor(shallow_features)
 
-        if self.stage == 'continous':
+        if self.stage == 'continuous':
             assert scale is not None, "Scale factor required for continuous stage"
             sr_image = self.upsampler(deep_features, scale)
         else:
@@ -124,7 +124,7 @@ class C2DISR(nn.Module):
     def load_stage1_weights(self, stage1_checkpoint: str, strict: bool = True):
         checkpoint = torch.load(stage1_checkpoint, map_location='cpu')
 
-        if 'model_state_dict' in checkpoints:
+        if 'model_state_dict' in checkpoint:
             state_dict = checkpoint['model_state_dict']
         else:
             state_dict = checkpoint
@@ -138,7 +138,7 @@ class C2DISR(nn.Module):
         missing_keys, unexpected_keys = self.load_state_dict(filtered_state_dict, strict=strict)
 
         if missing_keys:
-            print(f"Missing keys: {missing_keys")
+            print(f"Missing keys: {missing_keys}")
         if unexpected_keys:
             print(f"Unexpected keys: {unexpected_keys}")
 
@@ -169,21 +169,23 @@ class C2DISRFactory:
             scale_factor=scale_factor
         )
 
+    @staticmethod
     def count_parameters(model: nn.Module) -> tuple:
         total_params = sum(p.numel() for p in model.parameters())
         trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
         return total_params, trainable_params
 
+    @staticmethod
     def get_model_info(model: C2DISR) -> dict:
-        total_params, trainable_params = count_paramaters(model)
+        total_params, trainable_params = C2DISRFactory.count_parameters(model)
 
-    return {
-        'stage': model.stage,
-        'feature_dim': model.feature_dim,
-        'num_hiet_blocks': model.num_hiet_blocks,
-        'scale_factor': model.scale_factor,
-        'total_paramaters': total_params,
-        'trainable_parameters': trainable_params,
-        'parameters_mb': total_params / (1024 * 1024)
-    }
+        return {
+            'stage': model.stage,
+            'feature_dim': model.feature_dim,
+            'num_hiet_blocks': model.num_hiet_blocks,
+            'scale_factor': model.scale_factor,
+            'total_parameters': total_params,
+            'trainable_parameters': trainable_params,
+            'parameters_mb': total_params / (1024 * 1024)
+        }

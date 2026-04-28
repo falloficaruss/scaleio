@@ -24,7 +24,7 @@ class HierarchicalCoordinateEncoding(nn.Module):
         xx_norm = xx / (w - 1) if w > 1 else xx
 
         cell_size = torch.tensor([2.0 / scale, 2.0 / scale], device=device)
-        coords = torch.stack([yy_norm.flatten(), xx_norm.flatten()], dim=-1)
+        coords = torch.stack([yy_norm.flatten(), xx_norm.flatten()], dim=-1) # (H*W, 2)
         encoding = []
 
         for i in range(self.d_model // 8):
@@ -44,7 +44,8 @@ class HierarchicalCoordinateEncoding(nn.Module):
         remaining = self.d_model - len(encoding)
 
         if remaining > 0:
-            encoding.extend([torch.zeros_like(coords[:, 0]) for _ in range(remaining)])
+            for _ in range(remaining):
+                encoding.append(torch.zeros_like(coords[:, 0]))
 
         coord_encoding = torch.stack(encoding, dim=-1)
         return coord_encoding
@@ -68,19 +69,19 @@ class LinearAttention(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, N, C = x.shape
 
-        qkv = (
-            self.qkv(x)
-            .reshape(B, N, 3, self.num_heads, self.head_dim)
-            .permute(2, 0, 3, 1, 4)
-        )
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
+        q, k, v = qkv[0], qkv[1], qkv[2]
 
         q = F.softmax(q, dim=-1) * self.scale
         k = F.softmax(k, dim=-2)
 
-        attn = torch.einsum("bhnd,bhnd->bhdm", k, v)
-        out = torch.einsum("bhnd,bhnd->bhnm", q, attn)
+        # Linear attention: (Q @ (K.T @ V))
+        # k: B, H, N, D; v: B, H, N, D
+        # context: B, H, D, D
+        context = torch.matmul(k.transpose(-1, -2), v)
+        out = torch.matmul(q, context) # B, H, N, D
 
-        out = out.reshape(B, N, C)
+        out = out.transpose(1, 2).reshape(B, N, C)
         out = self.proj(out)
         out = self.proj_drop(out)
 
@@ -95,19 +96,19 @@ class HIIFL(nn.Module):
         self.coord_encoder = HierarchicalCoordinateEncoding(dim)
 
         self.mlp1 = nn.Sequential(
-            nn.Linear(dim * 2, dim * mlp_ratio),
+            nn.Linear(dim * 2, int(dim * mlp_ratio)),
             nn.GELU(),
             nn.Dropout(0.0),
-            nn.Linear(dim * mlp_ratio, dim),
+            nn.Linear(int(dim * mlp_ratio), dim),
         )
 
         self.linear_attn = LinearAttention(dim, num_heads)
 
         self.mlp2 = nn.Sequential(
-            nn.Linear(dim, dim * mlp_ratio),
+            nn.Linear(dim, int(dim * mlp_ratio)),
             nn.GELU(),
             nn.Dropout(0.0),
-            nn.Linear(dim * mlp_ratio, 3),
+            nn.Linear(int(dim * mlp_ratio), 3),
         )
 
         self.norm1 = nn.LayerNorm(dim)
@@ -118,12 +119,12 @@ class HIIFL(nn.Module):
     def _init_weights(self):
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                bb.init.trunc_normal_(m.weight, std=0.02)
+                nn.init.trunc_normal_(m.weight, std=0.02)
                 if m.bias is not None:
-                    nn.init.constant_(m_bias, 0)
+                    nn.init.constant_(m.bias, 0)
 
     def forward(self, features: torch.Tensor, scale: float) -> torch.Tensor:
-        B, C, H_lr, W_lr = feature.shape
+        B, C, H_lr, W_lr = features.shape
 
         H_hr = int(H_lr * scale)
         W_hr = int(W_lr * scale)
