@@ -66,9 +66,10 @@ The training is divided into two primary stages:
 - **Types**: Use Python type hints for better readability and maintainability.
 - **Style**: Follow standard PyTorch practices (e.g., `model.train()`, `model.eval()`, `optimizer.zero_grad()`).
 
-## Known Maintenance Issues (To-dos)
+## Maintenance History
 
-- [ ] **Missing File**: `training/scheduler.py` is referenced but missing.
-- [ ] **Typo**: `training/stage2_discrete.py` calls `L1loss()` instead of `L1Loss()`.
-- [ ] **Import Mismatch**: `training/stage1_continuous.py` imports `ContinuousScaleDataset`, but it is defined as `ContinuousScaleData` in `data/datasets.py`.
-- [ ] **Factory Argument Mismatch**: `C2DISRFactory.create_model_from_stage1` argument name mismatch in `stage2_discrete.py` (`stage_model` vs `stage1_model`).
+- [x] **Missing File**: `training/scheduler.py` has been implemented with `WarmupCosineScheduler`.
+- [x] **Typo**: `training/stage2_discrete.py` fixed to call `L1Loss()`.
+- [x] **Import Mismatch**: `training/stage1_continuous.py` updated to import `ContinuousScaleData`.
+- [x] **Factory Argument Mismatch**: `C2DISRFactory.create_model_from_stage1` argument name fixed in `stage2_discrete.py`.
+- [x] **Import Style**: Converted relative imports in `training/` to absolute imports for better root-level execution compatibility.

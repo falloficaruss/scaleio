@@ -9,11 +9,11 @@ import random
 from tqdm import tqdm
 from typing import Dict, Optional
 
-from ..data.datasets import SRDataset
-from ..models.c2d_isr import C2DISRFactory
-from ..evaluation.metrics import calculate_psnr, calculate_ssim, batch_metrics
-from .losses import L1Loss
-from .scheduler import WarmupCosineScheduler
+from data.datasets import SRDataset
+from models.c2d_isr import C2DISRFactory
+from evaluation.metrics import calculate_psnr, calculate_ssim, batch_metrics
+from training.losses import L1Loss
+from training.scheduler import WarmupCosineScheduler
 
 
 class Stage2Trainer:
@@ -61,7 +61,7 @@ class Stage2Trainer:
         )
         
         self.model = C2DISRFactory.create_model_from_stage1(
-            stage_model=stage1_model,
+            stage1_model=stage1_model,
             scale_factor=self.scale_factor
         )
         
@@ -74,10 +74,10 @@ class Stage2Trainer:
         self.model = self.model.to(self.device)
         
         try:
-            from .. models.c2d_isr import get_model_info
-            model_info = get_model_info(self.model)
+            model_info = C2DISRFactory.get_model_info(self.model)
             print(f"Model initialized: {model_info}")
-        except Exception:
+        except Exception as e:
+            print(f"Error getting model info: {e}")
             pass
             
     def _setup_data(self):
@@ -315,4 +315,4 @@ def get_default_config() -> Dict:
 if __name__ == '__main__':
     config = get_default_config()
     trainer = Stage2Trainer(config)
-    trainer.train())
+    trainer.train()

@@ -9,11 +9,11 @@ import random
 from tqdm import tqdm
 from typing import Dict, Optional
 
-from ..data.datasets import ContinuousScaleData
-from ..models.c2d_isr import C2DISRFactory
-from ..evaluation.metrics import calculate_psnr, calculate_ssim, batch_metrics
-from .losses import L1Loss
-from .scheduler import WarmupCosineScheduler
+from data.datasets import ContinuousScaleData
+from models.c2d_isr import C2DISRFactory
+from evaluation.metrics import calculate_psnr, calculate_ssim, batch_metrics
+from training.losses import L1Loss
+from training.scheduler import WarmupCosineScheduler
 
 class Stage1Trainer:
     """Stage 1: Continuous-scale pre-training with HIIF-L upsampler."""
@@ -68,13 +68,12 @@ class Stage1Trainer:
         self.model = self.model.to(self.device)
         
         # Print model info
-        from ..models.c2d_isr import get_model_info
-        model_info = get_model_info(self.model)
+        model_info = C2DISRFactory.get_model_info(self.model)
         print(f"Model initialized: {model_info}")
     
     def _setup_data(self):
         """Initialize dataset and dataloader."""
-        self.dataset = ContinuousScaleDataset(
+        self.dataset = ContinuousScaleData(
             hr_dir=self.data_path,
             min_scale=self.min_scale,
             max_scale=self.max_scale,
