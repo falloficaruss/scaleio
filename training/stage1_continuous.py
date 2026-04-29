@@ -9,7 +9,7 @@ import random
 from tqdm import tqdm
 from typing import Dict, Optional
 
-from ..data.datasets import ContinuousScaleDataset
+from ..data.datasets import ContinuousScaleData
 from ..models.c2d_isr import C2DISRFactory
 from ..evaluation.metrics import calculate_psnr, calculate_ssim, batch_metrics
 from .losses import L1Loss

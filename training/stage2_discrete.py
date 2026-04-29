@@ -117,7 +117,7 @@ class Stage2Trainer:
         )
         
     def _setup_loss(self):
-        self.criterion = L1loss()
+        self.criterion = L1Loss()
         
     def _setup_logging(self):
         self.writer = SummaryWriter(log_dir=self.log_path)
@@ -315,4 +315,4 @@ def get_default_config() -> Dict:
 if __name__ == '__main__':
     config = get_default_config()
     trainer = Stage2Trainer(config)
-    trainer.train()
+    trainer.train())
