@@ -4,10 +4,14 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import os
+import sys
 import time
 import random
 from tqdm import tqdm
 from typing import Dict, Optional
+
+# Add project root to sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.datasets import ContinuousScaleData
 from models.c2d_isr import C2DISRFactory
@@ -85,7 +89,7 @@ class Stage1Trainer:
             self.dataset,
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=4,
+            num_workers=2,
             pin_memory=True,
             drop_last=True
         )
@@ -199,14 +203,21 @@ class Stage1Trainer:
                 num_workers=2
             )
             
-            for lr_imgs, hr_imgs, scales in tqdm(val_loader, desc='Validation', leave=False):
+            for hr_imgs in tqdm(val_loader, desc='Validation', leave=False):
                 # Move to device
-                lr_imgs = lr_imgs.to(self.device)
                 hr_imgs = hr_imgs.to(self.device)
-                scales = scales.to(self.device)
+                
+                # Sample scale for the batch
+                scale = random.uniform(self.min_scale, self.max_scale)
+                
+                # Downsample hr_imgs to lr_imgs
+                lr_h, lr_w = int(self.dataset.patch_size / scale), int(self.dataset.patch_size / scale)
+                lr_imgs = kornia.geometry.transform.resize(
+                    hr_imgs, (lr_h, lr_w), interpolation="bicubic"
+                )
                 
                 # Forward pass
-                sr_imgs = self.model(lr_imgs, scales)
+                sr_imgs = self.model(lr_imgs, scale)
                 
                 # Calculate loss and metrics
                 loss = self.criterion(sr_imgs, hr_imgs)

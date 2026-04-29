@@ -24,9 +24,11 @@ class SRDataset(Dataset):
     def __getitem__(self, idx):
         hr_path = self.hr_paths[idx]
         hr_img = Image.open(hr_path).convert("RGB")
-        hr_tensor = kornia.image_to_tensor(hr_img, keepdim=False).float() / 255.0
+        hr_img_np = np.array(hr_img)
+        hr_tensor = kornia.image_to_tensor(hr_img_np, keepdim=False).float() / 255.0
+        hr_tensor = hr_tensor.squeeze(0)
 
-        h, w = hr_tensor.shape[1:]
+        h, w = hr_tensor.shape[-2:]
         if h > self.patch_size or w > self.patch_size:
             top = random.randint(0, h - self.patch_size)
             left = random.randint(0, w - self.patch_size)
@@ -72,9 +74,11 @@ class ContinuousScaleData(Dataset):
     def __getitem__(self, idx):
         hr_path = self.hr_paths[idx]
         hr_img = Image.open(hr_path).convert("RGB")
-        hr_tensor = kornia.image_to_tensor(hr_img, keepdim=False).float() / 255.0
+        hr_img_np = np.array(hr_img)
+        hr_tensor = kornia.image_to_tensor(hr_img_np, keepdim=False).float() / 255.0
+        hr_tensor = hr_tensor.squeeze(0)
 
-        h, w = hr_tensor.shape[1:]
+        h, w = hr_tensor.shape[-2:]
         if h > self.patch_size or w > self.patch_size:
             top = random.randint(0, h - self.patch_size)
             left = random.randint(0, w - self.patch_size)
@@ -82,18 +86,9 @@ class ContinuousScaleData(Dataset):
                 :, top : top + self.patch_size, left : left + self.patch_size
             ]
 
-        scale = random.uniform(self.min_scale, self.max_scale)
-
-        lr_h, lr_w = int(self.patch_size / scale), int(self.patch_size / scale)
-        lr_tensor = kornia.geometry.transform.resize(
-            hr_tensor, (lr_h, lr_w), interpolation="bicubic"
-        )
-
         if self.augment and random.random() > 0.5:
             hr_tensor = torch.flip(hr_tensor, dims=[2])
-            lr_tensor = torch.flip(lr_tensor, dims=[2])
         if self.augment and random.random() > 0.5:
             hr_tensor = torch.flip(hr_tensor, dims=[1])
-            lr_tensor = torch.flip(lr_tensor, dims=[1])
 
-        return lr_tensor, hr_tensor, scale
+        return hr_tensor

@@ -4,10 +4,14 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import os
+import sys
 import time
 import random
 from tqdm import tqdm
 from typing import Dict, Optional
+
+# Add project root to sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.datasets import SRDataset
 from models.c2d_isr import C2DISRFactory
@@ -92,7 +96,7 @@ class Stage2Trainer:
             self.dataset,
             batch_size=self.batch_size,
             shuffle=True,
-            num_workers=4,
+            num_workers=2,
             pin_memory=True,
             drop_last=True
         )
