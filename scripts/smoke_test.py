@@ -36,9 +36,9 @@ def run_smoke_test():
     print("Running 2 epochs of Stage 1...")
     s1_trainer.train()
     
-    s1_checkpoint = os.path.join(s1_config['save_path'], 'latest_checkpoint.pth')
+    s1_checkpoint = os.path.join(s1_config['save_path'], 'stage1_latest.pth')
     if not os.path.exists(s1_checkpoint):
-        # Fallback if the trainer uses a different naming convention internally
+        # Fallback for older naming convention if any
         s1_checkpoint = os.path.join(s1_config['save_path'], 'checkpoint_epoch_1.pth')
 
     # 3. Test Stage 2 (Discrete)

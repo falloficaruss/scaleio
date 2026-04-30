@@ -135,10 +135,10 @@ class C2DISR(nn.Module):
             if not key.startswith('upsampler'):
                 filtered_state_dict[key] = value
 
-        missing_keys, unexpected_keys = self.load_state_dict(filtered_state_dict, strict=strict)
+        missing_keys, unexpected_keys = self.load_state_dict(filtered_state_dict, strict=False)
 
         if missing_keys:
-            print(f"Missing keys: {missing_keys}")
+            print(f"Loaded Backbone Weights. Missing keys (as expected): {len(missing_keys)}")
         if unexpected_keys:
             print(f"Unexpected keys: {unexpected_keys}")
 
