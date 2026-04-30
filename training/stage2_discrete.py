@@ -56,6 +56,7 @@ class Stage2Trainer:
         self.current_epoch = 0
         self.best_psnr = 0.0
         self.global_step = 0
+        self.scaler = torch.amp.GradScaler('cuda') if torch.cuda.is_available() else None
         
     def _setup_model(self):
         stage1_model = C2DISRFactory.create_stage1_model(
@@ -140,12 +141,18 @@ class Stage2Trainer:
             
             self.optimizer.zero_grad()
             
-            sr_imgs = self.model(lr_imgs)
+            device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+            with torch.amp.autocast(device_type=device_type, enabled=(self.scaler is not None)):
+                sr_imgs = self.model(lr_imgs)
+                loss = self.criterion(sr_imgs, hr_imgs)
             
-            loss = self.criterion(sr_imgs, hr_imgs)
-            
-            loss.backward()
-            self.optimizer.step()
+            if self.scaler is not None:
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                loss.backward()
+                self.optimizer.step()
             
             with torch.no_grad():
                 psnr, ssim = batch_metrics(sr_imgs, hr_imgs)
@@ -302,7 +309,7 @@ class Stage2Trainer:
 def get_default_config() -> Dict:
     return {
         'epochs': 300,
-        'batch_size': 16,
+        'batch_size': 8,
         'lr_max': 1e-4,
         'lr_min': 1e-6,
         'warmup_epochs': 20,

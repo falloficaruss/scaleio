@@ -63,6 +63,7 @@ class Stage1Trainer:
         self.current_epoch = 0
         self.best_psnr = 0.0
         self.global_step = 0
+        self.scaler = torch.amp.GradScaler('cuda') if torch.cuda.is_available() else None
     
     def _setup_model(self):
         """Initialize the model."""
@@ -150,18 +151,26 @@ class Stage1Trainer:
             # Forward pass
             self.optimizer.zero_grad()
             
-            sr_imgs = self.model(lr_imgs, scale)
+            # Use autocast for mixed precision training
+            device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+            with torch.amp.autocast(device_type=device_type, enabled=(self.scaler is not None)):
+                sr_imgs = self.model(lr_imgs, scale)
+                
+                # Ensure sr_imgs matches hr_imgs size (handle rounding issues in HIIFL)
+                if sr_imgs.shape != hr_imgs.shape:
+                    sr_imgs = F.interpolate(sr_imgs, size=hr_imgs.shape[2:], mode='bilinear', align_corners=False)
+                
+                # Calculate loss
+                loss = self.criterion(sr_imgs, hr_imgs)
             
-            # Ensure sr_imgs matches hr_imgs size (handle rounding issues in HIIFL)
-            if sr_imgs.shape != hr_imgs.shape:
-                sr_imgs = F.interpolate(sr_imgs, size=hr_imgs.shape[2:], mode='bilinear', align_corners=False)
-            
-            # Calculate loss
-            loss = self.criterion(sr_imgs, hr_imgs)
-            
-            # Backward pass
-            loss.backward()
-            self.optimizer.step()
+            # Backward pass with scaler
+            if self.scaler is not None:
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                loss.backward()
+                self.optimizer.step()
             
             # Calculate metrics
             with torch.no_grad():
@@ -353,7 +362,7 @@ def get_default_config() -> Dict:
     return {
         # Training parameters
         'epochs': 700,
-        'batch_size': 16,
+        'batch_size': 8,
         'lr_max': 4e-4,
         'lr_min': 1e-6,
         'warmup_epochs': 50,
