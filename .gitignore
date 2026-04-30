@@ -1,3 +1,5 @@
 *.jpg
 PLAN.md
 __pycache__
+checkpoints/*
+logs/*

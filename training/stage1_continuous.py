@@ -239,10 +239,17 @@ class Stage1Trainer:
                 )
                 
                 # Forward pass
-                sr_imgs = self.model(lr_imgs, scale)
+                device_type = 'cuda' if torch.cuda.is_available() else 'cpu'
+                with torch.amp.autocast(device_type=device_type, enabled=(self.scaler is not None)):
+                    sr_imgs = self.model(lr_imgs, scale)
+                    
+                    # Ensure sr_imgs matches hr_imgs size
+                    if sr_imgs.shape != hr_imgs.shape:
+                        sr_imgs = F.interpolate(sr_imgs, size=hr_imgs.shape[2:], mode='bilinear', align_corners=False)
+                    
+                    # Calculate loss and metrics
+                    loss = self.criterion(sr_imgs, hr_imgs)
                 
-                # Calculate loss and metrics
-                loss = self.criterion(sr_imgs, hr_imgs)
                 psnr, ssim = batch_metrics(sr_imgs, hr_imgs)
                 
                 val_losses.append(loss.item())
