@@ -53,13 +53,14 @@ class HiETBlock(nn.Module):
         for i in range(depth):
             downsample = nn.Sequential(
                 nn.Conv2d(dim, dim, kernel_size=3, stride=2, padding=1),
-                nn.LayerNorm(dim)
+                # Custom LayerNorm for [B, C, H, W] input
+                nn.GroupNorm(1, dim) # Equivalent to LayerNorm over the channel dimension
             )
             self.downsample_layers.append(downsample)
 
             upsample = nn.Sequential(
                 nn.ConvTranspose2d(dim, dim, kernel_size=3, stride=2, padding=1, output_padding=1),
-                nn.LayerNorm(dim)
+                nn.GroupNorm(1, dim)
             )
             self.upsample_layers.append(upsample)
 

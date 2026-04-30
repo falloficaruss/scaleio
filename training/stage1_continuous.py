@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
@@ -7,6 +8,7 @@ import os
 import sys
 import time
 import random
+import kornia
 from tqdm import tqdm
 from typing import Dict, Optional
 
@@ -132,16 +134,27 @@ class Stage1Trainer:
         
         pbar = tqdm(self.dataloader, desc=f'Epoch {self.current_epoch}')
         
-        for batch_idx, (lr_imgs, hr_imgs, scales) in enumerate(pbar):
+        for batch_idx, hr_imgs in enumerate(pbar):
             # Move to device
-            lr_imgs = lr_imgs.to(self.device)
             hr_imgs = hr_imgs.to(self.device)
-            scales = scales.to(self.device)
+            
+            # Sample scale for the batch
+            scale = random.uniform(self.min_scale, self.max_scale)
+            
+            # Downsample hr_imgs to lr_imgs
+            lr_h, lr_w = int(self.dataset.patch_size / scale), int(self.dataset.patch_size / scale)
+            lr_imgs = kornia.geometry.transform.resize(
+                hr_imgs, (lr_h, lr_w), interpolation="bicubic"
+            )
             
             # Forward pass
             self.optimizer.zero_grad()
             
-            sr_imgs = self.model(lr_imgs, scales)
+            sr_imgs = self.model(lr_imgs, scale)
+            
+            # Ensure sr_imgs matches hr_imgs size (handle rounding issues in HIIFL)
+            if sr_imgs.shape != hr_imgs.shape:
+                sr_imgs = F.interpolate(sr_imgs, size=hr_imgs.shape[2:], mode='bilinear', align_corners=False)
             
             # Calculate loss
             loss = self.criterion(sr_imgs, hr_imgs)
