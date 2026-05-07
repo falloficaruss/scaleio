@@ -16,10 +16,12 @@ class WarmupCosineScheduler(optim.lr_scheduler._LRScheduler):
     def get_lr(self):
         epoch = self.last_epoch
         if epoch < self.warmup_epochs:
-            # Linear warmup
             lr = self.lr_max * (epoch + 1) / self.warmup_epochs
         else:
-            # Cosine decay
             progress = (epoch - self.warmup_epochs) / (self.max_epochs - self.warmup_epochs)
             lr = self.lr_min + 0.5 * (self.lr_max - self.lr_min) * (1 + math.cos(math.pi * progress))
         return [lr for _ in self.base_lrs]
+
+    def _save_to_state_dict(self, state_dict):
+        super()._save_to_state_dict(state_dict)
+        state_dict['max_epochs'] = self.max_epochs
