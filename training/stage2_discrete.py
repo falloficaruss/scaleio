@@ -244,6 +244,9 @@ class Stage2Trainer:
             'config': self.config
         }
         
+        if self.scaler is not None:
+            checkpoint['scaler_state_dict'] = self.scaler.state_dict()
+            
         checkpoint_path = os.path.join(self.save_path, 'stage2_latest.pth')
         torch.save(checkpoint, checkpoint_path)
         
@@ -259,6 +262,9 @@ class Stage2Trainer:
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        
+        if self.scaler is not None and 'scaler_state_dict' in checkpoint:
+            self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
         
         self.current_epoch = checkpoint['epoch'] + 1
         self.global_step = checkpoint['global_step']
@@ -331,6 +337,20 @@ def get_default_config() -> Dict:
     }
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Stage 2: Discrete-scale Fine-tuning')
+    parser.add_argument('--resume', type=str, help='Path to checkpoint to resume from')
+    parser.add_argument('--auto_resume', action='store_true', default=True, help='Automatically resume from latest checkpoint')
+    args = parser.parse_args()
+
     config = get_default_config()
     trainer = Stage2Trainer(config)
-    trainer.train()
+    
+    resume_path = args.resume
+    if not resume_path and args.auto_resume:
+        latest_path = os.path.join(config['save_path'], 'stage2_latest.pth')
+        if os.path.exists(latest_path):
+            resume_path = latest_path
+            print(f"Auto-resuming from {resume_path}")
+            
+    trainer.train(resume_from=resume_path)

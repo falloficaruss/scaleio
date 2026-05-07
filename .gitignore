@@ -3,3 +3,4 @@ PLAN.md
 __pycache__
 checkpoints/*
 logs/*
+data/toy_dataset/*
