@@ -305,12 +305,15 @@ class Stage1Trainer:
 
         # Save latest checkpoint
         checkpoint_path = os.path.join(self.save_path, "stage1_latest.pth")
-        torch.save(checkpoint, checkpoint_path)
+        tmp_path = checkpoint_path + ".tmp"
+        torch.save(checkpoint, tmp_path)
+        os.replace(tmp_path, checkpoint_path)
 
-        # Save best checkpoint
         if is_best:
             best_path = os.path.join(self.save_path, "stage1_best.pth")
-            torch.save(checkpoint, best_path)
+            best_tmp = best_path + ".tmp"
+            torch.save(checkpoint, best_tmp)
+            os.replace(best_tmp, best_path)
 
         print(f"Checkpoint saved: {checkpoint_path}")
 
@@ -345,6 +348,9 @@ class Stage1Trainer:
     def train(self, resume_from: Optional[str] = None):
         """Main training loop."""
         if resume_from:
+            if "_best.pth" in resume_from:
+                resume_from = resume_from.replace("_best.pth", "_latest.pth")
+                print(f"Substituted best checkpoint with latest: {resume_from}")
             self.load_checkpoint(resume_from)
             self.log_path = f"{self.log_path}_resume_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             os.makedirs(self.log_path, exist_ok=True)

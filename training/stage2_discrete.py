@@ -51,7 +51,6 @@ class Stage2Trainer:
         os.makedirs(self.save_path, exist_ok=True)
         os.makedirs(self.log_path, exist_ok=True)
 
-        self._setup_model()
         self._setup_data()
         self._setup_optimizer()
         self._setup_scheduler()
@@ -65,7 +64,7 @@ class Stage2Trainer:
             torch.amp.GradScaler("cuda") if torch.cuda.is_available() else None
         )
 
-    def _setup_model(self):
+    def _setup_model(self, skip_stage1: bool = False):
         stage1_model = C2DISRFactory.create_stage1_model(
             feature_dim=self.feature_dim,
             num_hiet_blocks=self.num_hiet_blocks,
@@ -76,10 +75,10 @@ class Stage2Trainer:
             stage1_model=stage1_model, scale_factor=self.scale_factor
         )
 
-        if os.path.exists(self.stage1_checkpoint):
+        if not skip_stage1 and os.path.exists(self.stage1_checkpoint):
             print(f"Loading Stage 1 weights from {self.stage1_checkpoint}...")
             self.model.load_stage1_weights(self.stage1_checkpoint)
-        else:
+        elif not skip_stage1:
             print(
                 f"Warning: Stage 1 checkpoint not found at {self.stage1_checkpoint}. Starting from scratch."
             )
@@ -258,11 +257,15 @@ class Stage2Trainer:
             checkpoint["scaler_state_dict"] = self.scaler.state_dict()
 
         checkpoint_path = os.path.join(self.save_path, "stage2_latest.pth")
-        torch.save(checkpoint, checkpoint_path)
+        tmp_path = checkpoint_path + ".tmp"
+        torch.save(checkpoint, tmp_path)
+        os.replace(tmp_path, checkpoint_path)
 
         if is_best:
             best_path = os.path.join(self.save_path, "stage2_best.pth")
-            torch.save(checkpoint, best_path)
+            best_tmp = best_path + ".tmp"
+            torch.save(checkpoint, best_tmp)
+            os.replace(best_tmp, best_path)
 
         print(f"Checkpoint saved: {checkpoint_path}")
 
@@ -295,10 +298,20 @@ class Stage2Trainer:
 
     def train(self, resume_from: Optional[str] = None):
         if resume_from:
+            if "_best.pth" in resume_from:
+                resume_from = resume_from.replace("_best.pth", "_latest.pth")
+                print(f"Substituted best checkpoint with latest: {resume_from}")
+            self._setup_model(skip_stage1=True)
+            self._setup_data()
+            self._setup_optimizer()
+            self._setup_scheduler()
+            self._setup_loss()
             self.load_checkpoint(resume_from)
             self.log_path = f"{self.log_path}_resume_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             os.makedirs(self.log_path, exist_ok=True)
             self.writer = SummaryWriter(log_dir=self.log_path)
+        else:
+            self._setup_model()
 
         print(f"Starting Stage 2 training for {self.epochs} epochs...")
         print(f"Device: {self.device}")
